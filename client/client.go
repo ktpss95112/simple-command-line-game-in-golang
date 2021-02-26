@@ -22,7 +22,7 @@ const (
 	fps = 60
 
 	arenaWidth  = 36
-	arenaHeight = 18
+	arenaHeight = 22
 
 	boardHorWidth  = 2
 	boardVerHeight = 1
@@ -39,11 +39,15 @@ const (
 
 var serverIP = flag.String("addr", "localhost", "IP address of game server")
 var serverPort = flag.Int("port", 9393, "port number of game server")
+var gameMode = flag.String("game-mode", "default", `game mode, available values are "default", "fast", and "double"`)
 
 func main() {
 	flag.Parse()
 	rand.Seed(time.Now().UnixNano())
 	log.SetFlags(0)
+	if *gameMode != "default" && *gameMode != "fast" && *gameMode != "double" {
+		log.Fatalf("Invalid --game-mode : %v", *gameMode)
+	}
 
 	conn, err := net.Dial("tcp", fmt.Sprintf("%v:%v", *serverIP, *serverPort))
 	if err != nil {
@@ -61,14 +65,15 @@ type frame struct {
 
 	state int
 
-	horizontal int // the x coordinate of left top corner of horizontal board
-	vertical   int // the y coordinate of left top corner of vertical board
-	ballx      int // ball width is 1
-	bally      int // ball height is 1
-	countdown  int // in seconds
+	horizontal int   // the x coordinate of left top corner of horizontal board
+	vertical   int   // the y coordinate of left top corner of vertical board
+	ballx      []int // ball width is 1
+	bally      []int // ball height is 1
+	countdown  int   // in seconds
 }
 
 var currentFrame frame
+var theFlag string
 
 func newGame(conn net.Conn) {
 	g, err := gocui.NewGui(gocui.OutputNormal)
@@ -77,7 +82,7 @@ func newGame(conn net.Conn) {
 	}
 	defer g.Close()
 
-	currentFrame = frame{&sync.RWMutex{}, statePlaying, 0, 0, arenaWidth / 2, arenaHeight / 2, 1000}
+	currentFrame = frame{&sync.RWMutex{}, statePlaying, 0, 0, []int{}, []int{}, 1000}
 
 	g.SetManagerFunc(gameOnEveryEvent)
 
@@ -164,6 +169,15 @@ func gameOnEveryEvent(g *gocui.Gui) error {
 		fmt.Fprintln(vm, message)
 	}
 
+	// give flag if mode is fast or double
+	if f.state == stateWin && (*gameMode == "fast" || *gameMode == "double") {
+		vm, err := g.SetView("flag", 1, arenaHeight/2+2, arenaWidth, arenaHeight/2+4)
+		if err != nil && err != gocui.ErrUnknownView {
+			return err
+		}
+		fmt.Fprintln(vm, string(theFlag))
+	}
+
 	return nil
 }
 
@@ -193,7 +207,9 @@ func drawArena(v *gocui.View, f frame) {
 	}
 
 	// draw ball
-	buf[f.bally][f.ballx] = '#'
+	for i := range f.ballx {
+		buf[f.bally[i]][f.ballx[i]] = '#'
+	}
 
 	for y := 0; y <= arenaHeight; y++ {
 		fmt.Fprintln(v, string(buf[y][:]))
@@ -203,7 +219,7 @@ func drawArena(v *gocui.View, f frame) {
 func recvFromServer(conn net.Conn, g *gocui.Gui) {
 	defer g.Update(func(*gocui.Gui) error { return nil })
 
-	if _, err := conn.Write([]byte("start")); err != nil {
+	if _, err := conn.Write([]byte("start " + *gameMode)); err != nil {
 		currentFrame.lock.Lock()
 		currentFrame.state = stateDisconnected
 		currentFrame.lock.Unlock()
@@ -212,7 +228,7 @@ func recvFromServer(conn net.Conn, g *gocui.Gui) {
 
 	reader := bufio.NewReader(conn)
 	for {
-		var tmp [5]int
+		var tmp [5][]int
 		for i := 0; i < 5; i++ {
 			line, _, err := reader.ReadLine()
 			if err != nil { // read again
@@ -224,13 +240,17 @@ func recvFromServer(conn net.Conn, g *gocui.Gui) {
 
 			lineStr := string(line)
 
-			if lineStr == "win" {
+			if strings.HasPrefix(lineStr, "win") {
 				currentFrame.lock.Lock()
 				currentFrame.state = stateWin
 				currentFrame.lock.Unlock()
+
+				if *gameMode == "fast" || *gameMode == "double" {
+					theFlag = lineStr[4:]
+				}
 				return
 			}
-			if lineStr == "lose" {
+			if strings.HasPrefix(lineStr, "lose") {
 				currentFrame.lock.Lock()
 				currentFrame.state = stateLose
 				currentFrame.lock.Unlock()
@@ -244,15 +264,19 @@ func recvFromServer(conn net.Conn, g *gocui.Gui) {
 				continue
 			}
 
-			tmp[i], _ = strconv.Atoi(strings.ReplaceAll(strings.Split(lineStr, ": ")[1], "\x00", ""))
+			tmp[i] = make([]int, 0)
+			for _, valStr := range strings.Fields(strings.Split(lineStr, ": ")[1]) {
+				val, _ := strconv.Atoi(valStr)
+				tmp[i] = append(tmp[i], val)
+			}
 		}
 
 		currentFrame.lock.Lock()
-		currentFrame.horizontal = tmp[0]
-		currentFrame.vertical = tmp[1]
+		currentFrame.horizontal = tmp[0][0]
+		currentFrame.vertical = tmp[1][0]
 		currentFrame.ballx = tmp[2]
 		currentFrame.bally = tmp[3]
-		currentFrame.countdown = tmp[4]
+		currentFrame.countdown = tmp[4][0]
 		currentFrame.lock.Unlock()
 
 		// redraw the gui

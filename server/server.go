@@ -22,15 +22,22 @@ const (
 	sendSecretTime = 15 // in second
 
 	arenaWidth  = 36
-	arenaHeight = 18
+	arenaHeight = 22
 
-	boardHorWidth  = 2
-	boardVerHeight = 1
-	boardVelocityX = 0.5
-	boardVelocityY = 1
+	boardHorWidth         = 2
+	boardVerHeight        = 1
+	defaultBoardVelocityX = 1
+	defaultBoardVelocityY = 1
 
-	ballVelocityX = 1.5 * boardHorWidth / fps
-	ballVelocityY = 1.5 * boardVerHeight / fps
+	defaultBallVelocityX = 1.5 * boardHorWidth / fps
+	defaultBallVelocityY = 1.5 * boardVerHeight / fps
+
+	gameModeFastBallVelocityScalar   = 3
+	gameModeFastBoardVelocityScalar  = 1
+	gameModeDoubleBallVelocityScalar = 1.5
+
+	flagFast   = "HW1{d0_y0u_knovv_wH0_KaienLin_1s?}"
+	flagDouble = "HW1{Dou8l3_b@ll_d0uB1e_Fun!}"
 )
 
 const (
@@ -41,6 +48,12 @@ const (
 	actionRight
 )
 
+const (
+	gameModeDefault = iota
+	gameModeFast
+	gameModeDouble
+)
+
 var serverIP = flag.String("bind_addr", "0.0.0.0", "bind address of game server")
 var serverPort = flag.Int("port", 9393, "port number of game server")
 var isDaemon = flag.Bool("daemon", false, "whether server is a daemon")
@@ -49,8 +62,8 @@ func main() {
 	flag.Parse()
 	setupLogger()
 
-	go runServer("secret", portSecret, receiveSecret)
-	runServer("game", *serverPort, newGame)
+	go runServer("secret", portSecret, secretHandler)
+	runServer("game", *serverPort, gameHandler)
 }
 
 func runServer(name string, port int, mainFunc func(net.Conn)) {
@@ -91,38 +104,113 @@ func setupLogger() {
 // game
 
 type gameEnv struct {
+	mode int
+
 	horizontal float64 // the x coordinate of left top corner of horizontal board
 	vertical   float64 // the y coordinate of left top corner of vertical board
-	ballx      float64 // ball width is 1
-	bally      float64 // ball height is 1
-	ballDirx   int     // +1 or -1
-	ballDiry   int     // +1 or -1
-	countdown  int     // stores the number of remaining ticks
+
+	ballx     []float64 // ball width is 1
+	bally     []float64 // ball height is 1
+	ballDirx  []int     // +1 or -1
+	ballDiry  []int     // +1 or -1
+	countdown int       // stores the number of remaining ticks
+
+	ballVelocityX  float64
+	ballVelocityY  float64
+	boardVelocityX float64
+	boardVelocityY float64
 }
 
 func (env gameEnv) String() string {
-	return fmt.Sprintf("horizontal: %d\nvertical: %d\nballx: %d\nbally: %d\ncountdown: %d\n", int(env.horizontal), int(env.vertical), int(env.ballx), int(env.bally), int(float64(env.countdown)/fps+1))
+	result := fmt.Sprintf("horizontal: %d\n", int(env.horizontal))
+	result += fmt.Sprintf("vertical: %d\n", int(env.vertical))
+	{
+		result += fmt.Sprintf("ballx:")
+		for _, val := range env.ballx {
+			result += fmt.Sprintf(" %v", int(val))
+		}
+		result += fmt.Sprintf("\n")
+	}
+	{
+		result += fmt.Sprintf("bally:")
+		for _, val := range env.bally {
+			result += fmt.Sprintf(" %v", int(val))
+		}
+		result += fmt.Sprintf("\n")
+	}
+	result += fmt.Sprintf("countdown: %d\n", int(float64(env.countdown)/fps+1))
+
+	return result
 }
 
-func newGame(conn net.Conn) {
-	rand.Seed(time.Now().UnixNano())
-	env := gameEnv{
-		0,
-		0,
-		float64(arenaWidth/2 + rand.Intn(7) - 3),
-		float64(arenaHeight/2 + rand.Intn(7) - 3),
-		getRandSign(),
-		getRandSign(),
-		duration * fps,
+func newGame(gameModeStr string) *gameEnv {
+	env := new(gameEnv)
+
+	switch gameModeStr {
+	case "fast":
+		env.mode = gameModeFast
+	case "double":
+		env.mode = gameModeDouble
+	default:
+		env.mode = gameModeDefault
 	}
+
+	// default values
+	env.horizontal = arenaWidth / 2
+	env.vertical = arenaHeight / 2
+
+	env.ballx = []float64{float64(arenaWidth/2 + getRandSign()*(2+rand.Intn(2)))}
+	env.bally = []float64{float64(arenaHeight/2 + getRandSign()*(2+rand.Intn(4)))}
+	env.ballDirx = []int{getRandSign()}
+	env.ballDiry = []int{getRandSign()}
+	env.countdown = duration * fps
+
+	env.ballVelocityX = defaultBallVelocityX
+	env.ballVelocityY = defaultBallVelocityY
+	env.boardVelocityX = defaultBoardVelocityX
+	env.boardVelocityY = defaultBoardVelocityY
+
+	// special tuning
+	if env.mode == gameModeFast {
+		env.ballVelocityX *= gameModeFastBallVelocityScalar
+		env.ballVelocityY *= gameModeFastBallVelocityScalar
+		env.boardVelocityX *= gameModeFastBoardVelocityScalar
+		env.boardVelocityY *= gameModeFastBoardVelocityScalar
+	}
+
+	if env.mode == gameModeDouble {
+		env.ballVelocityX *= gameModeDoubleBallVelocityScalar
+		env.ballVelocityY *= gameModeDoubleBallVelocityScalar
+		env.ballx = []float64{float64(arenaWidth/2 - arenaWidth/4 + 1), float64(arenaWidth/2 + arenaWidth/4 - 1)}
+		env.bally = []float64{float64(arenaHeight/2 - arenaHeight/4 - 2), float64(arenaHeight/2 + arenaHeight/4)}
+		tmp := getRandSign()
+		env.ballDirx = []int{tmp, tmp}
+		env.ballDiry = []int{-tmp, -tmp}
+	}
+
+	return env
+}
+
+func gameHandler(conn net.Conn) {
+	rand.Seed(time.Now().UnixNano())
 	ticker := time.NewTicker(time.Second / fps)
 
 	// receive "start" from client
-	if _, err := conn.Read(make([]byte, 10)); err != nil {
-		return
+	var env *gameEnv
+	{
+		buf := make([]byte, 20)
+		if n, err := conn.Read(buf); err != nil {
+			return
+		}
+
+		buf = buf[:n]
+
+		modeStr := strings.Fields(string(buf))[1]
+		log.Printf("start game (mode: %v), remote = %v", modeStr, conn.RemoteAddr())
+		defer log.Printf("end game (mode: %v), remote = %v", modeStr, conn.RemoteAddr())
+
+		env = newGame(modeStr)
 	}
-	log.Printf("start game, remote = %v", conn.RemoteAddr())
-	defer log.Printf("end game, remote = %v", conn.RemoteAddr())
 
 	// read from client
 	var clientAction int
@@ -145,34 +233,42 @@ func newGame(conn net.Conn) {
 		}
 	}()
 
+	// main game loop
 	for {
 		select {
 		case <-ticker.C:
+			// update board position
 			switch clientAction {
 			case actionUp:
-				env.vertical = math.Max(env.vertical-boardVelocityY, 0)
+				env.vertical = math.Max(env.vertical-env.boardVelocityY, 0)
 			case actionDown:
-				env.vertical = math.Min(env.vertical+boardVelocityY, arenaHeight-boardVerHeight)
+				env.vertical = math.Min(env.vertical+env.boardVelocityY, arenaHeight-boardVerHeight)
 			case actionLeft:
-				env.horizontal = math.Max(env.horizontal-boardVelocityX, 0)
+				env.horizontal = math.Max(env.horizontal-env.boardVelocityX, 0)
 			case actionRight:
-				env.horizontal = math.Min(env.horizontal+boardVelocityY, arenaWidth-boardHorWidth)
+				env.horizontal = math.Min(env.horizontal+env.boardVelocityX, arenaWidth-boardHorWidth)
 			}
 			clientAction = actionNone
 
-			env.ballx += float64(env.ballDirx) * ballVelocityX
-			if env.ballx >= float64(arenaWidth-1) || env.ballx <= 1 {
-				if env.vertical <= env.bally && env.bally <= env.vertical+float64(boardVerHeight) {
-					env.ballDirx *= -1
-					env.ballx = math.Max(math.Min(env.ballx, arenaWidth-1), 1)
+			// update ball position
+			var ballOutOfBound bool
+			for i := range env.ballx {
+				env.ballx[i] += float64(env.ballDirx[i]) * env.ballVelocityX
+				if env.ballx[i] >= float64(arenaWidth-1) || env.ballx[i] <= 1 {
+					if env.vertical <= env.bally[i] && env.bally[i] <= env.vertical+float64(boardVerHeight) {
+						env.ballDirx[i] *= -1
+						env.ballx[i] = math.Max(math.Min(env.ballx[i], arenaWidth-1), 1)
+					}
 				}
-			}
-			env.bally += float64(env.ballDiry) * ballVelocityY
-			if env.bally >= float64(arenaHeight-1) || env.bally <= 1 {
-				if env.horizontal <= env.ballx && env.ballx <= env.horizontal+float64(boardHorWidth) {
-					env.ballDiry *= -1
-					env.bally = math.Max(math.Min(env.bally, arenaHeight-1), 1)
+				env.bally[i] += float64(env.ballDiry[i]) * env.ballVelocityY
+				if env.bally[i] >= float64(arenaHeight-1) || env.bally[i] <= 1 {
+					if env.horizontal <= env.ballx[i] && env.ballx[i] <= env.horizontal+float64(boardHorWidth) {
+						env.ballDiry[i] *= -1
+						env.bally[i] = math.Max(math.Min(env.bally[i], arenaHeight-1), 1)
+					}
 				}
+
+				ballOutOfBound = ballOutOfBound || env.ballx[i] < 0 || env.ballx[i] > arenaWidth || env.bally[i] < 0 || env.bally[i] > arenaHeight
 			}
 
 			env.countdown--
@@ -180,9 +276,16 @@ func newGame(conn net.Conn) {
 			var message []byte
 			var exit bool = false
 			if env.countdown < 0 {
-				message = []byte("win\n")
+				switch env.mode {
+				case gameModeFast:
+					message = []byte(fmt.Sprintf("win %v\n", flagFast))
+				case gameModeDouble:
+					message = []byte(fmt.Sprintf("win %v\n", flagDouble))
+				default:
+					message = []byte("win\n")
+				}
 				exit = true
-			} else if env.ballx < 0 || env.ballx > arenaWidth || env.bally < 0 || env.bally > arenaHeight {
+			} else if ballOutOfBound {
 				message = []byte("lose\n")
 				exit = true
 			} else {
@@ -216,7 +319,7 @@ func getRandSign() int {
 // ----------------------------------------------------------------------------
 // secret
 
-func receiveSecret(conn net.Conn) {
+func secretHandler(conn net.Conn) {
 	defer conn.Close()
 
 	var data [5][]byte
