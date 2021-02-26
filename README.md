@@ -1,0 +1,1 @@
+The `game-server` in folder `init.d` is the service file for Alpine Linux. However, using Alpine Linux to deploy the game will cause much more configuration cost on students. I use Ubuntu 16.04 as final virtual machine. `game-server.service` is the service configuration for `systemd` in Ubuntu.

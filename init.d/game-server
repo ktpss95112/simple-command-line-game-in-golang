@@ -1,0 +1,6 @@
+#!/sbin/openrc-run
+
+command="/root/server"
+command_args="--daemon"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"

@@ -1,0 +1,10 @@
+[Unit]
+Description=Game Server
+
+[Service]
+Type=simple
+ExecStart=/root/server --daemon
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
