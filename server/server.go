@@ -199,10 +199,10 @@ func gameHandler(conn net.Conn) {
 	var env *gameEnv
 	{
 		buf := make([]byte, 20)
-		if n, err := conn.Read(buf); err != nil {
+		n, err := conn.Read(buf)
+		if err != nil {
 			return
 		}
-
 		buf = buf[:n]
 
 		modeStr := strings.Fields(string(buf))[1]
