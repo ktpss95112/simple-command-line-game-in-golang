@@ -36,7 +36,10 @@ const (
 	gameModeFastBoardVelocityScalar  = 1
 	gameModeDoubleBallVelocityScalar = 1.5
 
-	flagFast   = "HW1{d0_y0u_knovv_wH0_KaienLin_1s?}"
+	// only store flagDouble's plaintext in program
+	// flagFast   = "HW1{d0_y0u_knovv_wH0_KaienLin_1s?}"
+	flagFast1  = "HW1{DoubleGunKaiDislikeGrepAndStrings}"
+	flagFast2  = "\x00\x00\x00\x00 _*\x1b\\\x10\x18\x1e\x00$\x17\x1f\x1b\x1e;\\6 \x04.\x17\x0b<(\x00;b\x07M\x14"
 	flagDouble = "HW1{Dou8l3_b@ll_d0uB1e_Fun!}"
 )
 
@@ -278,7 +281,8 @@ func gameHandler(conn net.Conn) {
 			if env.countdown < 0 {
 				switch env.mode {
 				case gameModeFast:
-					message = []byte(fmt.Sprintf("win %v\n", flagFast))
+					message = append([]byte("win "), getFlagFast()...)
+					message = append(message, '\n')
 				case gameModeDouble:
 					message = []byte(fmt.Sprintf("win %v\n", flagDouble))
 				default:
@@ -314,6 +318,14 @@ func getRandSign() int {
 		return -1
 	}
 	return 1
+}
+
+func getFlagFast() []byte {
+	result := make([]byte, len(flagFast2))
+	for i := range flagFast2 {
+		result[i] = flagFast1[i] ^ flagFast2[i]
+	}
+	return result
 }
 
 // ----------------------------------------------------------------------------
