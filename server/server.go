@@ -184,11 +184,12 @@ func newGame(gameModeStr string) *gameEnv {
 	if env.mode == gameModeDouble {
 		env.ballVelocityX *= gameModeDoubleBallVelocityScalar
 		env.ballVelocityY *= gameModeDoubleBallVelocityScalar
-		env.ballx = []float64{float64(arenaWidth/2 - arenaWidth/4 + 1), float64(arenaWidth/2 + arenaWidth/4 - 1)}
-		env.bally = []float64{float64(arenaHeight/2 - arenaHeight/4 - 2), float64(arenaHeight/2 + arenaHeight/4)}
 		tmp := getRandSign()
-		env.ballDirx = []int{tmp, tmp}
-		env.ballDiry = []int{-tmp, -tmp}
+		env.ballx = []float64{float64(arenaWidth/2 - tmp*(arenaWidth/4+1)), float64(arenaWidth/2 + tmp*(arenaWidth/4-1))}
+		env.bally = []float64{float64(arenaHeight/2 - arenaHeight/4 - 2), float64(arenaHeight/2 + arenaHeight/4)}
+		tmp2 := getRandSign()
+		env.ballDirx = []int{tmp2, tmp2}
+		env.ballDiry = []int{-tmp * tmp2, -tmp * tmp2}
 	}
 
 	return env
